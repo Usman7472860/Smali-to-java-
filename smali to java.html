@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smali → Java</title>
+<style>
+  :root{--bg:#0d1117;--panel:#11161d;--panel2:#161b22;--line:#2b333d;--fg:#e6edf3;--mut:#8b949e;--acc:#2f81f7;--ok:#3fb950;--err:#f85149}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  header{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel2);flex-wrap:wrap}
+  header h1{font-size:15px;margin:0;letter-spacing:.3px}
+  .badge{font-size:11px;color:var(--mut);border:1px solid var(--line);padding:1px 6px;border-radius:20px}
+  main{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line)}
+  .pane{background:var(--bg);display:flex;flex-direction:column;min-height:300px}
+  .pane h2{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--mut);margin:0;padding:10px 14px;border-bottom:1px solid var(--line)}
+  textarea{flex:1;width:100%;background:var(--panel);color:var(--fg);border:0;padding:12px 14px;font:inherit;resize:vertical;outline:none;min-height:260px}
+  .tabs{display:flex;gap:4px;padding:8px 10px;border-bottom:1px solid var(--line);overflow-x:auto}
+  .tab{background:var(--panel2);border:1px solid var(--line);color:var(--mut);padding:3px 9px;border-radius:6px;cursor:pointer;white-space:nowrap;font-size:12px}
+  .tab.on{color:var(--fg);border-color:var(--acc);background:#16233a}
+  pre{flex:1;margin:0;padding:12px 14px;overflow:auto;white-space:pre;background:var(--panel);min-height:260px;font:inherit}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;padding:10px 14px;border-top:1px solid var(--line);background:var(--panel2)}
+  button{background:#21262d;color:var(--fg);border:1px solid var(--line);padding:6px 12px;border-radius:6px;cursor:pointer;font:inherit}
+  button:hover{border-color:var(--acc)}
+  button.pri{background:#1f6feb;border-color:#1f6feb}
+  button.ok{background:#238636;border-color:#238636}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  label.chk{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:12px;cursor:pointer}
+  input{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:inherit}
+  .opts{display:flex;gap:14px;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .gh{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;padding:12px 14px;border-top:1px solid var(--line);background:var(--panel)}
+  .gh h3{margin:0 0 2px;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--mut);grid-column:1/-1}
+  .msg{grid-column:1/-1;font-size:12px;color:var(--mut);min-height:16px;white-space:pre-wrap}
+  .msg.ok{color:var(--ok)} .msg.err{color:var(--err)}
+  .stats{padding:6px 14px;font-size:12px;color:var(--mut);border-bottom:1px solid var(--line)}
+  @media(max-width:900px){main{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Smali → Java</h1>
+  <span class="badge">client-side · kuch upload nahi hota</span>
+  <span class="badge">GitHub push ready</span>
+</header>
+
+<div class="opts">
+  <label class="chk"><input type="checkbox" id="oPrettify" checked> obfuscated class names prettify (ClassA, ClassB…)</label>
+  <label class="chk"><input type="checkbox" id="oStubs" checked> missing classes ke liye Java stubs</label>
+  <label class="chk"><input type="checkbox" id="oTodos" checked> unmapped instructions par TODO comment</label>
+  <label class="chk"><input type="checkbox" id="oLines"> .line ko comment me rakho</label>
+</div>
+
+<main>
+  <div class="pane">
+    <h2>Input — .smali files / folder / .zip</h2>
+    <div class="bar" style="border-top:0;border-bottom:1px solid var(--line)">
+      <button id="btnPick">Files chuno</button>
+      <button id="btnFolder">Folder chuno</button>
+      <button id="btnSample">Load sample</button>
+      <button id="btnClear">Clear</button>
+      <span id="inStat" class="badge">0 files</span>
+      <input type="file" id="fFiles" multiple accept=".smali,.txt,.zip" hidden>
+      <input type="file" id="fFolder" webkitdirectory directory multiple hidden>
+    </div>
+    <textarea id="src" spellcheck="false" placeholder=".class public Lcom/example/Foo;&#10;.super Ljava/lang/Object;&#10;&#10;.method public static add(II)I&#10;    .locals 1&#10;    add-int v0, p0, p1&#10;    return v0&#10;.end method"></textarea>
+    <div class="bar">
+      <button class="pri" id="btnConv">Convert karo</button>
+      <button id="btnZip" disabled>Download .zip</button>
+      <button id="btnCopy" disabled>Copy current</button>
+    </div>
+  </div>
+
+  <div class="pane">
+    <h2>Output — .java</h2>
+    <div class="tabs" id="tabs"><span class="badge">khaali</span></div>
+    <pre id="out">// Convert karo...</pre>
+    <div class="stats" id="stats">—</div>
+  </div>
+</main>
+
+<div class="gh">
+  <h3>GitHub push → Vercel auto-deploy</h3>
+  <input id="gToken" placeholder="PAT (fine-grained, Contents: RW)" type="password">
+  <input id="gRepo" placeholder="owner/repo">
+  <input id="gBranch" placeholder="branch (main)">
+  <input id="gPath" placeholder="folder prefix (java/src)">
+  <div style="display:flex;gap:8px">
+    <button class="ok" id="btnPush" disabled>Push to GitHub</button>
+    <button id="btnSave">Token save</button>
+  </div>
+  <div class="msg" id="gMsg"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+/* ================= descriptor helpers ================= */
+const PRIM={V:'void',Z:'boolean',B:'byte',S:'short',C:'char',I:'int',J:'long',F:'float',D:'double'};
+function splitDesc(d,i){i=i||0;const c=d[i];
+  if(c==='['){const r=splitDesc(d,i+1);return{type:r.type+'[]',next:r.next};}
+  if(c==='L'){const e=d.indexOf(';',i);return{type:d.slice(i,e+1),next:e+1};}
+  return{type:PRIM[c]||'Object',next:i+1};}
+function descToJava(d,map){if(!d)return 'void';
+  if(d[0]==='[')return descToJava(d.slice(1),map)+'[]';
+  if(d[0]==='L'){const n=d.slice(1,-1);return (map[n]||n).replace(/\//g,'.').replace(/\$/g,'.');}
+  return PRIM[d]||'Object';}
+function sigParts(sig){const c=sig.lastIndexOf(')');const p=sig.slice(1,c);const ret=sig.slice(c+1);
+  const o=[];let i=0;while(i<p.length){const r=splitDesc(p,i);o.push(r.type);i=r.next;}return{params:o,ret:ret};}
+function invertCond(c){
+  const pairs=[[' == 0',' != 0'],[' != 0',' == 0'],[' >= 0',' < 0'],[' <= 0',' > 0'],[' > 0',' <= 0'],[' < 0',' >= 0'],
+    [' == ',' != '],[' != ',' == '],[' >= ',' < '],[' <= ',' > '],[' > ',' <= '],[' < ',' >= ']];
+  for(const p of pairs){if(c.includes(p[0]))return c.replace(p[0],p[1]);}
+  return '!('+c+')';}
+function sanitize(n){const s=String(n).replace(/[^\w$]/g,'_');return /^\d/.test(s)?'_'+s:s;}
+function parseInvoke(op,ops){
+  const m=ops.match(/^\{(.*?)\}\s*,\s*(.+)$/);if(!m)return null;
+  const inner=m[1].trim();let regs;
+  if(inner.includes('..')){const p=inner.split('..').map(s=>s.trim());
+    const a=parseInt(p[0].slice(1),10),b=parseInt(p[1].slice(1),10);regs=[];
+    for(let x=a;x<=b;x++)regs.push('v'+x);}
+  else regs=inner.split(',').map(s=>s.trim()).filter(Boolean);
+  const r=m[2].trim().match(/^L([\w/$]+);->([\w$<>]+)(\(.*)$/);
+  if(!r)return null;
+  return {op:op,regs:regs,owner:r[1],name:r[2],sig:r[3]};}
+
+/* ================= name map ================= */
+function buildNameMap(files){
+  const names=new Set();
+  for(const f of files){const mm=f.text.matchAll(/L([A-Za-z0-9_$/]+);/g);for(const m of mm)names.add(m[1]);}
+  const reserved=new Set(['int','byte','char','short','long','float','double','boolean','void','Object','String','Class','Math','Thread','Exception','RuntimeException','StringBuilder','Integer','Long','Boolean','Double','Float','Short','Byte','Character','System','Throwable','List','Map','Set','ArrayList','HashMap','Iterator','Override']);
+  const map={};let n=0;
+  const alpha=i=>{let s='',x=i;do{s=String.fromCharCode(65+(x%26))+s;x=Math.floor(x/26)-1;}while(x>=0);return s;};
+  for(const full of [...names].sort()){
+    const segs=full.split('/');const last=segs[segs.length-1];
+    if(!/^[a-z][a-z0-9_]{0,2}(\$[a-z][a-z0-9_]{0,2})*$/.test(last))continue;
+    if(reserved.has(last))continue;
+    segs[segs.length-1]=last.split('$').map(()=> 'Class'+alpha(n++)).join('$');
+    map[full]=segs.join('/');}
+  return map;}
+
+/* ================= core converter ================= */
+function convertOne(file,map,opts,stats){
+  const lines=file.text.split(/\r?\n/);
+  const out=[];let ind=0;
+  const w=s=>out.push(s?('    '.repeat(ind)+s):'');
+  const todo=s=>{if(opts.todos)w('// TODO: '+s);};
+
+  const handlers=new Map();
+  for(const l of lines){const t=l.trim();
+    let m=t.match(/^\.catch\s+L([\w/$]+);\s*\{[^}]*\}\s*:(\S+)/);
+    if(m){handlers.set(m[2],m[1]);continue;}
+    m=t.match(/^\.catchall\s*\{[^}]*\}\s*:(\S+)/);
+    if(m)handlers.set(m[1],'Ljava/lang/Throwable;');}
+
+  let cls=null;
+  for(const l of lines){const m=l.trim().match(/^\.class\s+(.*?)\s*L([\w/$]+);\s*$/);if(m){cls={flags:m[1],name:m[2]};break;}}
+  if(!cls)return null;
+
+  const flags=cls.flags.split(/\s+/).filter(Boolean);
+  const isIface=flags.includes('interface'),isEnum=flags.includes('enum'),isAnn=flags.includes('annotation');
+  const cflags=flags.filter(f=>!['super','interface','enum','annotation','synthetic','declared-synchronized'].includes(f));
+  let sup=null;const impl=[];
+  for(const l of lines){const t=l.trim();
+    let m=t.match(/^\.super\s+L([\w/$]+);/);if(m)sup=m[1];
+    m=t.match(/^\.implements\s+L([\w/$]+);/);if(m)impl.push(m[1]);}
+  const mapped=map[cls.name]||cls.name;
+  const simpleName=mapped.split('/').pop().split('$').pop();
+  const pkg=mapped.split('/').slice(0,-1).join('.');
+  if(pkg){w('package '+pkg+';');w('');}
+  let head=(cflags.length?cflags.join(' ')+' ':'')+(isAnn?'@interface':isEnum?'enum':isIface?'interface':'class')+' '+simpleName;
+  if(sup&&sup!=='java/lang/Object'&&!isEnum)head+=' extends '+descToJava('L'+sup+';',map);
+  if(impl.length)head+=' implements '+impl.map(x=>descToJava('L'+x+';',map)).join(', ');
+  w(head+' {');ind=1;
+
+  let curM=null,locals=new Set(),types=new Map(),params={},alias={},pendingNew=new Map(),
+      openIfs=[],pendingInv=null,tryOpen=false,anns=[],swReg=null;
+  const flushAnn=()=>{anns.forEach(a=>w(a));anns=[];};
+  const regName=r=>alias[r]||params[r]||r;
+  const flushInv=()=>{if(pendingInv){w(pendingInv.expr+';');pendingInv=null;}};
+  const decl=(r,t,expr)=>{const n=regName(r);
+    if(r[0]==='p'){types.set(n,t);return n+' = '+expr+';';}
+    if(!locals.has(n)){locals.add(n);types.set(n,t);return t+' '+n+' = '+expr+';';}
+    types.set(n,t);return n+' = '+expr+';';};
+  const declOnly=(r,t)=>{const n=regName(r);if(r[0]==='p'||locals.has(n))return null;locals.add(n);types.set(n,t);return t+' '+n+';';};
+  const isObjReg=r=>{const t=types.get(regName(r));return !!t&&!['int','long','short','byte','char','float','double','boolean'].includes(t);};
+  const resetM=()=>{locals=new Set();types=new Map();params={};alias={};pendingNew=new Map();openIfs=[];pendingInv=null;tryOpen=false;anns=[];};
+
+  const AOP={'add':'+','sub':'-','mul':'*','div':'/','rem':'%','and':'&','or':'|','xor':'^','shl':'<<','shr':'>>','ushr':'>>>','rsub':'-'};
+
+  for(let i=0;i<lines.length;i++){
+    const t=lines[i].trim();
+    if(!t||t[0]==='#')continue;
+    if(!/^move-result/.test(t))flushInv();
+
+    if(t.startsWith('.catch')||t.startsWith('.line')||t.startsWith('.local')||t.startsWith('.end local')||t.startsWith('.restart')||t.startsWith('.prologue')||t.startsWith('.registers')||t.startsWith('.locals'))continue;
+
+    /* ---- labels ---- */
+    if(t[0]===':'){
+      const lab=t.slice(1).split(/\s+/)[0];
+      while(openIfs.length&&openIfs[openIfs.length-1]===lab){ind--;w('} // -> :'+lab);openIfs.pop();}
+      if(handlers.has(lab)){
+        while(openIfs.length){ind--;w('} // -> :'+lab);openIfs.pop();}
+        let k=i+1;while(k<lines.length&&!lines[k].trim())k++;
+        const me=lines[k]&&lines[k].trim().match(/^move-exception\s+(\S+)/);
+        if(me)alias[me[1]]='e0';
+        if(tryOpen){ind--;w('} catch ('+descToJava(handlers.get(lab),map)+' e0) {');ind++;}
+        else{w('try { } catch ('+descToJava(handlers.get(lab),map)+' e0) {');ind++;}
+        w('// :'+lab);
+      } else w('// :'+lab);
+      continue;}
+
+    /* ---- annotations (class level) ---- */
+    if(t.startsWith('.annotation')){
+      if(curM){let k=i+1;while(k<lines.length&&!lines[k].trim().startsWith('.end annotation'))k++;i=k;continue;}
+      const an=t.match(/L([\w/$]+);/);const args=[];let k=i+1;
+      while(k<lines.length&&!lines[k].trim().startsWith('.end annotation')){
+        const vm=lines[k].trim().match(/^([\w$-]+)\s*=\s*(.+)$/);if(vm)args.push(vm[1]+' = '+vm[2].trim());k++;}
+      i=k;
+      if(an){const nm=an[1].split('/').pop().split('$').pop();
+        if(!/^(Signature|Throws|EnclosingClass|EnclosingMethod|InnerClass|MemberClasses|MethodParameters|AnnotationDefault|Default|LocalVariableTable|LocalVariableTypeTable)$/.test(nm))
+          anns.push('@'+nm+(args.length?'('+args.join(', ')+')':''));}
+      continue;}
+
+    /* ---- fields ---- */
+    if(t.startsWith('.field')){
+      flushAnn();
+      const rest=t.slice(6).trim();
+      let declS=rest,val='';
+      const eq=rest.indexOf(' = ');
+      if(eq>=0){declS=rest.slice(0,eq);val=' = '+rest.slice(eq+3).trim();}
+      const mm=declS.match(/^([\w\s]*?)([\w$<>]+):(\S+)\s*$/);
+      if(!mm){w('// .field '+rest);continue;}
+      const f=mm[1].trim().split(/\s+/).filter(x=>x&&!['synthetic','declared-synchronized'].includes(x));
+      w((f.length?f.join(' ')+' ':'')+descToJava(mm[3],map)+' '+mm[2]+val+';');
+      continue;}
+
+    /* ---- methods ---- */
+    if(t.startsWith('.method')){
+      flushAnn();
+      const rest=t.slice(7).trim();
+      const sp=rest.lastIndexOf(' ');
+      const fl=sp>=0?rest.slice(0,sp).trim():'';
+      const sigPart=rest.slice(sp+1);
+      const opx=sigPart.indexOf('(');
+      const nm=sigPart.slice(0,opx),sig=sigPart.slice(opx);
+      const sp2=sigParts(sig);
+      const mf=fl.split(/\s+/).filter(x=>x&&!['constructor','synthetic','declared-synchronized','bridge','varargs','strictfp','volatile'].includes(x));
+      const isStatic=mf.includes('static');
+      const noBody=isIface||mf.includes('abstract')||mf.includes('native');
+      resetM();
+      const methodAnns=[];
+      for(let k=i+1;k<lines.length;k++){const s=lines[k].trim();
+        if(s.startsWith('.end method'))break;
+        const pm=s.match(/^\.param\s+(p\d+)\s*,\s*"([^"]*)"/);
+        if(pm){params[pm[1]]=sanitize(pm[2]);continue;}
+        if(s.startsWith('.annotation')){
+          const an=s.match(/L([\w/$]+);/);
+          if(an){const n2=an[1].split('/').pop().split('$').pop();
+            if(!/^(Signature|Throws|EnclosingClass|EnclosingMethod|InnerClass|MemberClasses|MethodParameters|AnnotationDefault|Default|LocalVariableTable|LocalVariableTypeTable)$/.test(n2))methodAnns.push('@'+n2);}
+          while(k+1<lines.length&&!lines[k+1].trim().startsWith('.end annotation'))k++;
+          k++;}}
+      if(nm==='<clinit>'){methodAnns.forEach(a=>w(a));w('static {');curM={body:true,ret:'V'};ind++;}
+      else{
+        if(!isStatic)params['p0']='this';
+        const pn=sp2.params.map((p,k)=>{const r='p'+(k+(isStatic?0:1));const ty=descToJava(p,map);
+          types.set(r,ty);types.set(params[r]||r,ty);return ty+' '+(params[r]||r);});
+        methodAnns.forEach(a=>w(a));
+        w((mf.length?mf.join(' ')+' ':'')+(nm==='<init>'?simpleName:nm)+'('+pn.join(', ')+')'+(noBody?' ;':' {'));
+        curM={body:!noBody,ret:sp2.ret};
+        if(!noBody)ind++;}
+      stats.methods++;
+      continue;}
+
+    if(t.startsWith('.end method')){
+      if(curM&&curM.body){
+        while(openIfs.length){ind--;w('} // -> :'+openIfs.pop());}
+        if(tryOpen){ind--;w('}');tryOpen=false;}
+        ind--;w('}');}
+      curM=null;resetM();continue;}
+
+    /* ---- switch payload ---- */
+    if(t.startsWith('.packed-switch')||t.startsWith('.sparse-switch')){
+      const isP=t.startsWith('.packed');const base=t.split(/\s+/)[1]||'0x0';
+      const cases=[];let k=i+1;
+      while(k<lines.length&&!/^\.end (packed|sparse)-switch/.test(lines[k].trim())){const c=lines[k].trim();if(c)cases.push(c.replace(':',''));k++;}
+      i=k;
+      w('switch ('+(swReg?regName(swReg):'reg')+') {');
+      cases.forEach((c,ix)=>{w('    // case '+(isP?(parseInt(base,16)+ix):c)+' -> :'+c);});
+      w('}');continue;}
+    if(t.startsWith('.array-data')){
+      const el=[];let k=i+1;
+      while(k<lines.length&&!/^\.end array-data/.test(lines[k].trim())){const c=lines[k].trim();if(c)el.push(c);k++;}
+      i=k;w('// array-data: '+el.join(', '));continue;}
+
+    /* ---- try open ---- */
+    if(curM&&curM.body&&handlers.size&&!tryOpen){w('try {');ind++;tryOpen=true;}
+
+    const im=t.match(/^([A-Za-z0-9\-\/<>]+)\s*(.*)$/);
+    if(!im){w('// '+t);stats.unmapped++;continue;}
+    const op=im[1],ops=im[2];
+
+    /* move-result */
+    if(op.startsWith('move-result')){
+      const dst=ops.split(',')[0].trim();
+      if(pendingInv){w(decl(dst,pendingInv.ret,pendingInv.expr));pendingInv=null;}
+      else w('// '+t);
+      continue;}
+    if(op==='move-exception')continue;
+
+    /* moves */
+    if(/^move(-object|-wide)?(\/(from16|16))?$/.test(op)){
+      const a=ops.split(',').map(s=>s.trim());const src=a[1];
+      w(decl(a[0],types.get(regName(src))||(op.indexOf('wide')>=0?'long':'Object'),regName(src)));continue;}
+
+    /* const */
+    if(op.startsWith('const-string')){const a=ops.split(',');w(decl(a[0].trim(),'String',a.slice(1).join(',').trim()));continue;}
+    if(op==='const-class'){const a=ops.split(',');const c=a[1].trim().match(/^L([\w/$]+);/);
+      w(decl(a[0].trim(),'Class',(c?descToJava('L'+c[1]+';',map):'Object')+'.class'));continue;}
+    if(op.startsWith('const-wide')){const a=ops.split(',');let v=a[1].trim();if(!/L$/.test(v))v+='L';
+      w(decl(a[0].trim(),'long',v));continue;}
+    if(op==='const'||op.startsWith('const/')){const a=ops.split(',');w(decl(a[0].trim(),'int',a[1].trim()));continue;}
+
+    /* new */
+    if(op==='new-instance'){const a=ops.split(',');const c=a[1].trim().match(/^L([\w/$]+);/);
+      const ty=c?descToJava('L'+c[1]+';',map):'Object';
+      const d=declOnly(a[0].trim(),ty);if(d)w(d);pendingNew.set(a[0].trim(),ty);continue;}
+    if(op==='new-array'){const a=ops.split(',');const ty=descToJava(a[2].trim(),map);
+      w(decl(a[0].trim(),ty,'new '+ty.replace(/\[\]$/,'')+'['+regName(a[1].trim())+']'));continue;}
+
+    /* fields */
+    if(/^(iget|iput|sget|sput)/.test(op)){
+      const a=ops.split(',').map(s=>s.trim());
+      const ref=a[a.length-1].match(/^L([\w/$]+);->([\w$]+):(\S+)$/);
+      if(!ref){w('// '+t);stats.unmapped++;continue;}
+      const owner=descToJava('L'+ref[1]+';',map),ft=descToJava(ref[3],map),acc=owner+'.'+ref[2];
+      if(op[0]==='s'){ if(op.startsWith('sput'))w(acc+' = '+regName(a[0])+';'); else w(decl(a[0],ft,acc)); }
+      else { const full=regName(a[1])+'.'+ref[2];
+        if(op.startsWith('iput'))w(full+' = '+regName(a[0])+';'); else w(decl(a[0],ft,full)); }
+      continue;}
+
+    /* invokes */
+    if(op.startsWith('invoke-')){
+      const p=parseInvoke(op,ops);
+      if(!p){w('// '+t);stats.unmapped++;continue;}
+      const sp3=sigParts(p.sig);const st=p.op==='invoke-static';
+      const owner=descToJava('L'+p.owner+';',map);
+      const args=(st?p.regs:p.regs.slice(1)).map(regName).join(', ');
+      if(p.name==='<init>'){
+        const target=p.regs[0];
+        if(p.op==='invoke-super'||(target==='p0'&&p.owner===sup&&p.owner!==cls.name))w('super('+args+');');
+        else if(target==='p0'&&p.owner===cls.name)w('this('+args+');');
+        else w(decl(target,owner,'new '+owner+'('+args+')'));
+        pendingNew.delete(target);continue;}
+      const expr=(st?owner+'.'+p.name:regName(p.regs[0])+'.'+p.name)+'('+args+')';
+      if(sp3.ret!=='V')pendingInv={ret:descToJava(sp3.ret,map),expr:expr};else w(expr+';');
+      continue;}
+
+    /* type conversion */
+    let mc=op.match(/^([a-z]+)-to-([a-z]+)$/);
+    if(mc){const a=ops.split(',').map(s=>s.trim());
+      const fmap={int:'I',long:'J',float:'F',double:'D',byte:'B',char:'C',short:'S'};
+      const toJ=PRIM[fmap[mc[2]]]||'int';
+      w(decl(a[0],toJ,'('+toJ+') '+regName(a[1])));continue;}
+
+    /* arithmetic */
+    let m2=op.match(/^([a-z]+)-(int|long|float|double)(?:\/(2addr|lit8|lit16))?$/);
+    if(m2){
+      const ty=m2[2],kind=m2[1],suf=m2[3];
+      const a=ops.split(',').map(s=>s.trim());
+      let expr;
+      if(kind==='neg')expr='-'+regName(a[1]);
+      else if(kind==='not')expr='~'+regName(a[1]);
+      else if(kind==='rsub')expr=regName(a[2])+' - '+regName(a[1]);
+      else if(suf==='2addr')expr=regName(a[0])+' '+AOP[kind]+' '+regName(a[1]);
+      else if(suf==='lit8'||suf==='lit16')expr=regName(a[1])+' '+AOP[kind]+' '+a[2];
+      else expr=regName(a[1])+' '+AOP[kind]+' '+regName(a[2]);
+      w(decl(a[0],ty,expr));continue;}
+
+    /* if */
+    const mi=op.match(/^if-(eq|ne|lt|ge|gt|le)(z)?$/);
+    if(mi){
+      const a=ops.split(',').map(s=>s.trim());
+      const lab=a[1].replace(':','');
+      const r=regName(a[0]);
+      const cmp={'eq':'==','ne':'!=','lt':'<','ge':'>=','gt':'>','le':'<='}[mi[1]];
+      let cond;
+      if(mi[2]){cond=isObjReg(a[0])?(r+' '+cmp+' null'):(r+' '+cmp+' 0');}
+      else{const obj=isObjReg(a[0])||isObjReg(a[1]);
+        cond=obj?(r+'.equals('+regName(a[1])+')'):(r+' '+cmp+' '+regName(a[1]));}
+      w('if ('+invertCond(cond)+') {');openIfs.push(lab);ind++;
+      continue;}
+
+    /* return / throw */
+    if(op==='return-void'){w('return;');continue;}
+    if(op.startsWith('return')){w('return '+regName(ops.trim())+';');continue;}
+    if(op==='throw'){w('throw '+regName(ops.trim())+';');continue;}
+
+    /* casts / arrays */
+    if(op==='check-cast'){const a=ops.split(',').map(s=>s.trim());const c=a[1].match(/^L([\w/$]+);/);
+      const ty=c?descToJava('L'+c[1]+';',map):'Object';
+      w(regName(a[0])+' = ('+ty+') '+regName(a[0])+';');types.set(regName(a[0]),ty);continue;}
+    if(op==='instance-of'){const a=ops.split(',').map(s=>s.trim());const c=a[2].match(/^L([\w/$]+);/);
+      w(decl(a[0],'boolean',regName(a[1])+' instanceof '+descToJava('L'+c[1]+';',map)));continue;}
+    if(op==='array-length'){const a=ops.split(',').map(s=>s.trim());w(decl(a[0],'int',regName(a[1])+'.length'));continue;}
+    if(/^a(get|put)(-wide|-object|-boolean|-byte|-char|-short)?$/.test(op)){
+      const a=ops.split(',').map(s=>s.trim());
+      const ty=op.endsWith('-wide')?'long':op.endsWith('-object')?'Object':op.endsWith('-boolean')?'boolean':op.endsWith('-byte')?'byte':op.endsWith('-char')?'char':op.endsWith('-short')?'short':'int';
+      if(op.indexOf('put')>=0)w(regName(a[1])+'['+regName(a[2])+'] = '+regName(a[0])+';');
+      else w(decl(a[0],ty,regName(a[1])+'['+regName(a[2])+']'));
+      continue;}
+
+    /* misc */
+    if(op==='nop'||op==='move-result-pseudo')continue;
+    if(op==='packed-switch'||op==='sparse-switch'){swReg=ops.split(',')[0].trim();w('// '+t);continue;}
+    if(op==='goto'||op==='goto/16'||op==='goto/32'){todo('goto '+ops+' (label jump)');continue;}
+    if(op==='monitor-enter'||op==='monitor-exit'){w('// '+t);continue;}
+
+    w('// '+(opts.todos?'TODO: ':'')+t);stats.unmapped++;
+  }
+
+  if(curM&&curM.body){while(openIfs.length){ind--;w('}');openIfs.pop();}if(tryOpen){ind--;w('}');}ind--;w('}');}
+  if(ind>0){ind=0;w('}');}
+
+  const path=(map[cls.name]||cls.name)+'.java';
+  return {internal:cls.name,path:path,text:out.join('\n')};
+}
+
+function makeStubs(files,map,defined){
+  const missing=new Map();
+  const addRef=(owner,name,sig)=>{
+    if(owner.indexOf('java/')===0)return;
+    if(defined.has(owner))return;
+    if(!missing.has(owner))missing.set(owner,{methods:new Map(),fields:new Map()});
+    const m=missing.get(owner);
+    if(name==='<init>')return;
+    m.methods.set(name+sig,{name:name,sig:sig});};
+  for(const f of files){
+    for(const r of f.text.matchAll(/L([\w/$]+);->([\w$<>]+)(\([^)]*\)\S+)/g))addRef(r[1],r[2],r[3]);
+    for(const r of f.text.matchAll(/L([\w/$]+);->([\w$]+):(\S+)/g)){
+      if(defined.has(r[1])||r[1].indexOf('java/')===0)continue;
+      if(!missing.has(r[1]))missing.set(r[1],{methods:new Map(),fields:new Map()});
+      missing.get(r[1]).fields.set(r[2],r[3]);}}
+  const outs=[];
+  for(const [owner,v] of missing){
+    const mapped=map[owner]||owner;
+    const simple=mapped.split('/').pop().split('$').pop();
+    const pkg=mapped.split('/').slice(0,-1).join('.');
+    const L=[];
+    if(pkg)L.push('package '+pkg+';','');
+    L.push('// auto-generated stub');
+    L.push('public class '+simple+' {');
+    for(const [n,t] of v.fields)L.push('    public '+descToJava(t,map)+' '+n+';');
+    if(v.fields.size&&v.methods.size)L.push('');
+    for(const m of v.methods.values()){
+      const sp=sigParts(m.sig);
+      const ps=sp.params.map((p,i)=>descToJava(p,map)+' p'+i).join(', ');
+      const rt=descToJava(sp.ret,map);
+      const body=rt==='void'?'':(rt==='boolean'?'return false;':(/^[a-z]/.test(rt)||rt==='char'?'return 0;':'return null;'));
+      L.push('    public static '+rt+' '+m.name+'('+ps+') { '+body+' }');}
+    L.push('}');
+    outs.push({path:'stubs/'+mapped+'.java',text:L.join('\n')});}
+  return outs;}
+
+function convertAll(files,opts){
+  const map=opts.prettify?buildNameMap(files):{};
+  const stats={classes:0,methods:0,unmapped:0};
+  const outs=[],defined=new Set();
+  for(const f of files){
+    const r=convertOne(f,map,opts,stats);
+    if(!r)continue;
+    defined.add(r.internal);outs.push({path:r.path,text:r.text});stats.classes++;}
+  if(opts.stubs)outs.push(...makeStubs(files,map,defined));
+  const mapping=Object.keys(map).map(k=>k+' -> '+map[k]).join('\n');
+  if(mapping)outs.push({path:'mapping.txt',text:'# obfuscated name map\n'+mapping});
+  return {outs:outs,stats:stats};}
+  /* ================= UI ================= */
+const $=s=>document.querySelector(s);
+let FILES=[],OUT=[],CUR=0;
+
+function addFiles(list){
+  for(const it of list){
+    if(/\.(smali|txt)$/i.test(it.path))FILES.push(it);
+    else if(/\.zip$/i.test(it.path))FILES.push({path:it.path,zip:it.file,text:null});
+    else if(!/\./i.test(it.path))FILES.push(it);}
+  renderIn();}
+
+function renderIn(){
+  $('#inStat').textContent=FILES.length+' files';
+  if(FILES.length){$('#src').value=FILES.map(f=>'// ===== '+f.path+' =====').join('\n');}}
+
+async function expandZips(){
+  const out=[];
+  for(const f of FILES){
+    if(f.zip){
+      const z=await JSZip.loadAsync(f.zip);
+      for(const name of Object.keys(z.files)){
+        if(/\.smali$/i.test(name))out.push({path:name,text:await z.files[name].async('string')});}}
+    else if(f.text==null){
+      out.push({path:f.path,text:await f.file.text()});}
+    else out.push(f);}
+  return out;}
+
+function entryFiles(dt){
+  const items=dt.items?[...dt.items]:[];
+  const res=[];
+  const walk=(entry,path)=>new Promise(async res2=>{
+    if(entry.isFile){const f=await new Promise(r=>entry.file(r));res.push({path:path+entry.name,file:f});return res2();}
+    if(entry.isDirectory){const rd=entry.createReader();
+      const ents=await new Promise(r=>rd.readEntries(r));
+      for(const e of ents)await walk(e,path+entry.name+'/');
+      return res2();}
+    res2();});
+  return Promise.all(items.map(it=>{const e=it.webkitGetAsEntry&&it.webkitGetAsEntry();return e?walk(e,''):null;}))
+    .then(()=>res.map(r=>({path:r.path,file:r.file})));}
+
+function readFilesAsText(list){
+  return Promise.all(list.map(async it=>{
+    if(/\.zip$/i.test(it.path))return {path:it.path,zip:it.file};
+    return {path:it.path,text:await it.file.text()};}));}
+
+/* input wiring */
+$('#fFiles').onchange=e=>readFilesAsText([...e.target.files].map(f=>({path:f.name,file:f}))).then(addFiles);
+$('#fFolder').onchange=e=>readFilesAsText([...e.target.files].map(f=>({path:f.webkitRelativePath||f.name,file:f}))).then(addFiles);
+$('#btnPick').onclick=()=>$('#fFiles').click();
+$('#btnFolder').onclick=()=>$('#fFolder').click();
+$('#btnClear').onclick=()=>{FILES=[];OUT=[];$('#src').value='';renderIn();$('#tabs').innerHTML='<span class="badge">khaali</span>';$('#out').textContent='// Convert karo...';$('#stats').textContent='—';$('#btnZip').disabled=$('#btnPush').disabled=$('#btnCopy').disabled=true;};
+
+const SAMPLE=`.class public final Lcom/demo/Calc;
+.super Ljava/lang/Object;
+.source "Calc.java"
+
+.field private static final TAG:Ljava/lang/String; = "Calc"
+
+.method public constructor <init>()V
+    .locals 0
+    invoke-direct {p0}, Ljava/lang/Object;-><init>()V
+    return-void
+.end method
+
+.method public static add(II)I
+    .locals 1
+    add-int v0, p0, p1
+    return v0
+.end method
+
+.method public static greet(Ljava/lang/String;)Ljava/lang/String;
+    .locals 2
+    new-instance v0, Ljava/lang/StringBuilder;
+    invoke-direct {v0}, Ljava/lang/StringBuilder;-><init>()V
+    const-string v1, "Hi "
+    invoke-virtual {v0, v1}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+    move-result-object v0
+    invoke-virtual {v0, p0}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+    move-result-object v0
+    invoke-virtual {v0}, Ljava/lang/StringBuilder;->toString()Ljava/lang/String;
+    move-result-object v0
+    return-object v0
+.end method
+
+.method public static max(II)I
+    .locals 1
+    if-ge p0, p1, :cond
+    move v0, p1
+    goto :done
+    :cond
+    move v0, p0
+    :done
+    return v0
+.end method`;
+$('#btnSample').onclick=()=>{FILES=[{path:'smali/com/demo/Calc.smali',text:SAMPLE}];renderIn();$('#src').value=SAMPLE;};
+
+/* convert */
+$('#btnConv').onclick=async()=>{
+  const opts={prettify:$('#oPrettify').checked,stubs:$('#oStubs').checked,todos:$('#oTodos').checked,lines:$('#oLines').checked};
+  let files;
+  if(FILES.length)files=await expandZips();
+  else files=[{path:'input.smali',text:$('#src').value}];
+  files=files.filter(f=>f.text&&/^\s*\.class\s/m.test(f.text));
+  if(!files.length){$('#stats').textContent='Koi valid .smali nahi mila';return;}
+  const r=convertAll(files,opts);
+  OUT=r.outs;
+  renderTabs();
+  $('#stats').textContent=files.length+' smali file(s) · '+r.stats.classes+' class · '+r.stats.methods+' method · '+r.stats.unmapped+' unmapped line(s) → '+OUT.length+' output file(s)';
+  $('#btnZip').disabled=$('#btnPush').disabled=$('#btnCopy').disabled=!OUT.length;};
+
+function renderTabs(){
+  const t=$('#tabs');t.innerHTML='';
+  OUT.forEach((f,i)=>{const b=document.createElement('div');b.className='tab'+(i===0?' on':'');
+    b.textContent=f.path;b.onclick=()=>{CUR=i;showFile();[...t.children].forEach(c=>c.classList.remove('on'));b.classList.add('on');};
+    t.appendChild(b);});
+  CUR=0;showFile();}
+function showFile(){const f=OUT[CUR];$('#out').textContent=f?f.text:'';}
+
+$('#btnCopy').onclick=()=>{navigator.clipboard.writeText(OUT[CUR].text);$('#btnCopy').textContent='Copied!';setTimeout(()=>$('#btnCopy').textContent='Copy current',900);};
+
+$('#btnZip').onclick=async()=>{
+  const z=new JSZip();
+  OUT.forEach(f=>z.file(f.path,f.text));
+  const blob=await z.generateAsync({type:'blob'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='java-output.zip';a.click();};
+
+/* github */
+$('#btnSave').onclick=()=>{localStorage.setItem('ghToken',$('#gToken').value.trim());localStorage.setItem('ghRepo',$('#gRepo').value.trim());localStorage.setItem('ghBranch',$('#gBranch').value.trim());localStorage.setItem('ghPath',$('#gPath').value.trim());setMsg('Save ho gaya','ok');};
+(function(){['gToken','gRepo','gBranch','gPath'].forEach((k,i)=>{const key=['ghToken','ghRepo','ghBranch','ghPath'][i];const v=localStorage.getItem(key);if(v)$('#'+k).value=v;});})();
+function setMsg(t,c){const m=$('#gMsg');m.textContent=t;m.className='msg '+(c||'');}
+const b64=s=>btoa(unescape(encodeURIComponent(s)));
+
+$('#btnPush').onclick=async()=>{
+  const token=$('#gToken').value.trim(),repo=$('#gRepo').value.trim(),
+        branch=$('#gBranch').value.trim()||'main',prefix=$('#gPath').value.trim().replace(/\/+$/,'');
+  if(!token||!repo){setMsg('token aur owner/repo chahiye','err');return;}
+  setMsg('Push ho raha hai...');
+  let ok=0;
+  try{
+    for(const f of OUT){
+      const path=(prefix?prefix+'/':'')+f.path;
+      const url='https://api.github.com/repos/'+repo+'/contents/'+encodeURI(path);
+      const H={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'};
+      let sha;
+      const g=await fetch(url+'?ref='+branch,{headers:H});
+      if(g.ok)sha=(await g.json()).sha;
+      const body={message:'smali→java: '+path,content:b64(f.text),branch:branch};
+      if(sha)body.sha=sha;
+      const p=await fetch(url,{method:'PUT',headers:Object.assign({'Content-Type':'application/json'},H),body:JSON.stringify(body)});
+      if(!p.ok)throw new Error(path+' → '+p.status+' '+(await p.text()).slice(0,160));
+      ok++;setMsg('Pushed '+ok+'/'+OUT.length+' …');}
+    setMsg(ok+' file(s) push ho gayi. Vercel auto-deploy karega.','ok');
+  }catch(e){setMsg('Error: '+e.message+'\n('+ok+'/'+OUT.length+' push hue)','err');}};
+
+/* drag & drop */
+document.addEventListener('dragover',e=>{e.preventDefault();});
+document.addEventListener('drop',async e=>{
+  e.preventDefault();
+  const list=await entryFiles(e.dataTransfer);
+  if(!list.length)return;
+  addFiles(await readFilesAsText(list));});
+</script>
+</body>
+</html>
