@@ -1,4 +1,4 @@
-const CACHE = 'smali2java-v1';
+const CACHE = 'smali2java-v2';
 const SHELL = [
   './',
   './index.html',
@@ -29,11 +29,23 @@ self.addEventListener('fetch', e => {
   const r = e.request;
   if (r.method !== 'GET') return;
   if (r.url.indexOf('api.github.com') !== -1) return;
+  const sameOrigin = new URL(r.url).origin === self.location.origin;
+  if (sameOrigin) {
+    // network-first so fixes reach users immediately; cache as offline fallback
+    e.respondWith(
+      fetch(r).then(res => {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put(r, copy));
+        return res;
+      }).catch(() => caches.match(r).then(hit => hit || caches.match('./index.html')))
+    );
+    return;
+  }
   e.respondWith(
     caches.match(r).then(hit => hit || fetch(r).then(res => {
       const copy = res.clone();
       caches.open(CACHE).then(c => c.put(r, copy));
       return res;
-    }).catch(() => caches.match('./index.html')))
+    }))
   );
 });
